@@ -58,8 +58,9 @@ OVERSEAS_INDICES = {
     "恒生指数": "^HSI", "台湾加权": "^TWII", "富时亚太": "VAPU.L",
 }
 
-# 历史交易记录（57笔），用于相似日匹配
+# 历史交易记录，用于相似日匹配（自动更新）
 HISTORICAL_TRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historical_trades.json")
+PENDING_TRADE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending_trade.json")
 
 # Seatalk API endpoints
 SEATALK_AUTH_API = "https://openapi.seatalk.io/auth/app_access_token"
@@ -454,6 +455,15 @@ def format_message(a):
 > 🟢 14:55 尾盘买入 → 次日 9:25 开盘卖出
 """
 
+    # 已结算交易
+    settled = a.get("settled_trade")
+    if settled:
+        e = "🟢" if settled["result"] == "win" else "🔴"
+        m += f"""
+📋 **上次交易结算**
+• {settled['date']}: {e} {settled['ret']:+.2f}%（历史数据库已更新）
+"""
+
     m += """
 ---
 📌 历史回测仅供参考，不构成投资建议
@@ -588,6 +598,75 @@ def send_seatalk(message):
         return False
 
 
+def settle_pending_trade():
+    """结算上次的待定交易，自动更新历史数据库"""
+    try:
+        with open(PENDING_TRADE_FILE) as f:
+            pending = json.load(f)
+    except:
+        return None  # 无待定交易
+
+    # 获取当前价格作为出场价（次日开盘价）
+    price = pending.get("entry_price", 0)
+    if price <= 0:
+        return None
+
+    exit_price = None
+    data = fetch_realtime()
+    if data:
+        exit_price = data.get("open")  # 次日开盘价卖出
+
+    if not exit_price or exit_price <= 0:
+        return None  # 还没到出场时间
+
+    # 计算实际收益
+    ret = (exit_price - price) / price * 100
+    result = "win" if ret > 0 else "loss"
+
+    # 构建交易记录
+    trade = {
+        "date": pending.get("date", ""),
+        "delta": pending.get("delta", 0),
+        "premium": pending.get("premium", 0),
+        "ret": round(ret, 2),
+        "vol_ratio": pending.get("vol_ratio", 1.0),
+        "trend_5d": pending.get("trend_5d", 0),
+        "result": result,
+        "type": "real",  # 标记为实盘交易
+    }
+
+    # 追加到历史数据库
+    trades = load_historical_trades()
+    trades.append(trade)
+
+    with open(HISTORICAL_TRADES_FILE, "w") as f:
+        json.dump(trades, f, ensure_ascii=False)
+
+    # 清除待定
+    os.remove(PENDING_TRADE_FILE)
+
+    emoji = "🟢" if result == "win" else "🔴"
+    print(f"[Trade] 结算: {pending['date']} 买入{price:.3f} → 卖出{exit_price:.3f} = {emoji} {ret:+.2f}%")
+    print(f"[Trade] 历史数据库已更新: {len(trades)}笔 (含实盘)")
+
+    return trade
+
+
+def save_pending_trade(analysis):
+    """信号触发时保存待定交易"""
+    trade = {
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "entry_price": analysis["price"],
+        "delta": analysis.get("delta", 0),
+        "premium": analysis.get("iopv_premium") or analysis.get("nav_premium") or 0,
+        "vol_ratio": 1.0,  # 盘中简化
+        "trend_5d": analysis.get("change_pct", 0),
+    }
+    with open(PENDING_TRADE_FILE, "w") as f:
+        json.dump(trade, f)
+    print(f"[Trade] 待定交易已保存: {trade['date']} @ {trade['entry_price']:.3f}")
+
+
 def main():
     now = datetime.now()
 
@@ -607,13 +686,23 @@ def main():
 
     analysis = analyze()
 
-    # 信号触发时，调用 AI 做上下文分析
-    if AI_ENABLED and analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
-        print("[AI] 信号触发，调用 DeepSeek 分析...")
-        ai_result = ai_analyze(analysis)
-        if ai_result:
-            analysis["ai_analysis"] = ai_result
-            print(f"[AI] ✅ 分析完成")
+    # 先结算上次的待定交易
+    settled = settle_pending_trade()
+
+    # 信号触发时，调用 AI 做上下文分析，并保存待定交易
+    if analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
+        if AI_ENABLED:
+            print("[AI] 信号触发，调用 DeepSeek 分析...")
+            ai_result = ai_analyze(analysis)
+            if ai_result:
+                analysis["ai_analysis"] = ai_result
+                print(f"[AI] ✅ 分析完成")
+        # 保存待定交易（下次运行时结算）
+        save_pending_trade(analysis)
+
+    # 盘后模式：如果结算了交易，把结果加到消息里
+    if settled:
+        analysis["settled_trade"] = settled
 
     message = format_message(analysis)
 
@@ -641,6 +730,14 @@ def main():
             token = get_access_token()
             print(f"  Token: {'✅' if token else '❌ 获取失败'}")
         print(f"  AI 分析: {'✅ 已启用' if AI_ENABLED else '⚪ 未启用（设置 DEEPSEEK_API_KEY）'}")
+        # 历史数据库
+        trades = load_historical_trades()
+        real_trades = [t for t in trades if t.get("type") == "real"]
+        print(f"  历史数据库: {len(trades)}笔（回测{len(trades)-len(real_trades)}+实盘{len(real_trades)}，自动更新）")
+        if os.path.exists(PENDING_TRADE_FILE):
+            with open(PENDING_TRADE_FILE) as f:
+                p = json.load(f)
+            print(f"  ⏳ 待定交易: {p['date']} @ {p['entry_price']:.3f}")
         if analysis.get("est_net"):
             net_yuan = analysis['est_net'] * cost.get('capital', 20000) / 100
             print(f"  预估净收益: +{analysis['est_net']:.2f}%/笔 ≈ ¥{net_yuan:.2f}")
