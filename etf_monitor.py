@@ -58,6 +58,19 @@ OVERSEAS_INDICES = {
     "恒生指数": "^HSI", "台湾加权": "^TWII", "富时亚太": "VAPU.L",
 }
 
+# 富时亚太低碳精选指数前15大权重股（yfinance ticker）
+# 注意：这是指数成分股参考，非159687直接持仓（159687是联接基金）
+INDEX_HOLDINGS = [
+    ("台积电", "2330.TW", 8.5), ("三星电子", "005930.KS", 6.2),
+    ("丰田汽车", "7203.T", 4.8), ("索尼", "6758.T", 3.5),
+    ("联邦银行", "CBA.AX", 3.2), ("BHP集团", "BHP.AX", 2.9),
+    ("任天堂", "7974.T", 2.7), ("友邦保险", "1299.HK", 2.5),
+    ("SK海力士", "000660.KS", 2.3), ("新加坡电信", "Z74.SI", 2.1),
+    ("三菱日联", "8306.T", 1.9), ("东京电子", "8035.T", 1.8),
+    ("瑞可利", "6098.T", 1.7), ("CSL", "CSL.AX", 1.6),
+    ("大金工业", "6367.T", 1.5),
+]
+
 # 历史交易记录，用于相似日匹配（自动更新）
 HISTORICAL_TRADES_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "historical_trades.json")
 PENDING_TRADE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pending_trade.json")
@@ -250,10 +263,11 @@ def analyze():
 
 
 def fetch_market_context():
-    """获取海外市场行情（免费，yfinance）"""
-    ctx = {}
+    """获取海外市场行情 + 权重股涨跌（免费，yfinance）"""
+    ctx = {"indices": {}, "holdings": []}
     try:
         import yfinance as yf
+        # 大盘指数
         for name, symbol in OVERSEAS_INDICES.items():
             try:
                 t = yf.Ticker(symbol)
@@ -261,7 +275,21 @@ def fetch_market_context():
                 if len(h) >= 2:
                     latest = h['Close'].iloc[-1]
                     prev = h['Close'].iloc[-2]
-                    ctx[name] = round((latest - prev) / prev * 100, 2)
+                    ctx["indices"][name] = round((latest - prev) / prev * 100, 2)
+            except:
+                pass
+        # 权重股
+        for name, ticker, weight in INDEX_HOLDINGS:
+            try:
+                t = yf.Ticker(ticker)
+                h = t.history(period="2d")
+                if len(h) >= 2:
+                    latest = h['Close'].iloc[-1]
+                    prev = h['Close'].iloc[-2]
+                    chg = round((latest - prev) / prev * 100, 2)
+                    ctx["holdings"].append({
+                        "name": name, "ticker": ticker, "weight": weight, "chg": chg
+                    })
             except:
                 pass
     except Exception as e:
@@ -344,9 +372,23 @@ def ai_analyze(analysis):
     amp = (analysis.get("high", 0) - analysis.get("low", 0)) / analysis.get("open", 1) * 100
     price = analysis["price"]
 
-    # 1. 海外市场数据
+    # 1. 海外市场 + 权重股数据
     market_ctx = fetch_market_context()
-    market_str = "\n".join([f"- {k}: {v:+.2f}%" for k, v in market_ctx.items()]) if market_ctx else "数据暂不可用"
+    idx = market_ctx.get("indices", {})
+    market_str = "\n".join([f"- {k}: {v:+.2f}%" for k, v in idx.items()]) if idx else "数据暂不可用"
+
+    holdings = market_ctx.get("holdings", [])
+    if holdings:
+        # 按涨幅排序，取涨跌各前5
+        sorted_h = sorted(holdings, key=lambda x: x["chg"], reverse=True)
+        top_gainers = sorted_h[:5]
+        top_losers = sorted_h[-5:]
+        holdings_str = "\n".join([
+            f"- {h['name']}({h['weight']}%): {h['chg']:+.2f}%"
+            for h in top_gainers + top_losers
+        ])
+    else:
+        holdings_str = "数据暂不可用"
 
     # 2. 相似日匹配
     trades = load_historical_trades()
@@ -380,8 +422,11 @@ def ai_analyze(analysis):
 - 信号强度: {signal}，振幅: {amp:.1f}%
 - 历史胜率: {analysis.get('signal_conf', '')}
 
-🌏 海外市场:
+🌏 海外指数:
 {market_str}
+
+📌 权重股表现(指数成分，非直接持仓):
+{holdings_str}
 
 📜 最相似历史交易:
 {sim_str}
