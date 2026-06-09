@@ -411,6 +411,40 @@ def ai_analyze(analysis):
     return None
 
 
+def write_diag_log(analysis, mode, ai_result=None):
+    """写诊断日志，每次运行追加到 run.log"""
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "run.log")
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    lines = [
+        f"\n{'='*60}",
+        f"运行时间: {ts} | 模式: {mode}",
+        f"行情: price={analysis.get('price','?')} chg={analysis.get('change_pct','?')}%",
+        f"IOPV: {analysis.get('iopv','?')} 溢价={analysis.get('iopv_premium','?')}%",
+        f"NAV: {analysis.get('nav','?')} ({analysis.get('nav_date','?')}) 溢价={analysis.get('nav_premium','?')}%",
+        f"前日溢价: {analysis.get('prev_premium','?')}%",
+        f"Δ溢价: {analysis.get('delta','?')}%",
+        f"信号: {analysis.get('signal','?')} | {analysis.get('signal_text','?')}",
+        f"AI: {'已分析' if ai_result else '未触发/未启用'}",
+    ]
+
+    if analysis.get("cost"):
+        c = analysis["cost"]
+        lines.append(f"成本: {c['total_pct']}%/笔 ({c['name']})")
+    if analysis.get("est_net"):
+        lines.append(f"预估净收益: {analysis['est_net']}%/笔")
+    if ai_result:
+        lines.append(f"AI分析: {ai_result}")
+
+    lines.append("-" * 40)
+
+    try:
+        with open(log_file, "a") as f:
+            f.write("\\n".join(lines) + "\\n")
+    except:
+        pass
+
+
 def format_message(a):
     """格式化 Seatalk 消息（简洁版，兼容 Seatalk markdown）"""
     if "error" in a:
@@ -464,8 +498,9 @@ def format_message(a):
 • {settled['date']}: {e} {settled['ret']:+.2f}%（历史数据库已更新）
 """
 
-    m += """
+    m += f"""
 ---
+🔍 数据质量: {a.get('data_quality', '未知')}
 📌 历史回测仅供参考，不构成投资建议
 """
     # 附加 AI 分析
@@ -703,6 +738,28 @@ def main():
     # 盘后模式：如果结算了交易，把结果加到消息里
     if settled:
         analysis["settled_trade"] = settled
+
+    # 写诊断日志
+    ai_result = analysis.get("ai_analysis")
+    write_diag_log(analysis, mode, ai_result)
+
+    # 数据质量标签
+    data_quality = []
+    if not analysis.get("iopv"):
+        data_quality.append("⚠️ IOPV缺失")
+    if not analysis.get("nav"):
+        data_quality.append("⚠️ NAV缺失")
+    nav_date = analysis.get("nav_date", "")
+    if nav_date:
+        from datetime import date as dt_date
+        try:
+            nav_d = dt_date.fromisoformat(nav_date)
+            lag = (dt_date.today() - nav_d).days
+            if lag > 3:
+                data_quality.append(f"⚠️ NAV滞后{lag}天")
+        except:
+            pass
+    analysis["data_quality"] = " | ".join(data_quality) if data_quality else "✅ 数据正常"
 
     message = format_message(analysis)
 

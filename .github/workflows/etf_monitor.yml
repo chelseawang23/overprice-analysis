@@ -60,7 +60,7 @@ jobs:
         run: |
           git config user.name "ETF Bot"
           git config user.email "etf-bot@github.com"
-          git add historical_trades.json pending_trade.json 2>/dev/null || true
+          git add historical_trades.json pending_trade.json run.log 2>/dev/null || true
           if git diff --cached --quiet; then
             echo "无数据变更"
           else
