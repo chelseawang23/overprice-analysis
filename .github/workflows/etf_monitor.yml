@@ -1,0 +1,53 @@
+name: ETF 溢价监控
+
+on:
+  schedule:
+    # 北京时间 14:30 (UTC 6:30) - 盘中提醒
+    - cron: '30 6 * * 1-5'
+    # 北京时间 22:00 (UTC 14:00) - 盘后日报  
+    - cron: '0 14 * * 1-5'
+  
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '运行模式'
+        required: true
+        default: 'test'
+        type: choice
+        options: [test, intraday, daily]
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: 运行分析
+        env:
+          SEATALK_APP_ID: ${{ secrets.SEATALK_APP_ID }}
+          SEATALK_APP_SECRET: ${{ secrets.SEATALK_APP_SECRET }}
+          SEATALK_USER_EMAILS: ${{ vars.SEATALK_USER_EMAILS || 'huixia.huang@shopee.com,jiayu.lin@shopee.com' }}
+          COST_MODEL: ${{ vars.COST_MODEL || 'realistic' }}
+          TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '20000' }}
+        run: |
+          # 根据 UTC 时间判断模式
+          HOUR=$(date -u +%H)
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            MODE="${{ github.event.inputs.mode }}"
+          elif [ "$HOUR" -lt 10 ]; then
+            MODE="intraday"
+          else
+            MODE="daily"
+          fi
+          echo "运行模式: $MODE (UTC $(date -u +%H:%M))"
+          python etf_monitor.py --$MODE
