@@ -47,6 +47,11 @@ SEATALK_USERS = [u.strip() for u in SEATALK_USERS if u.strip()]
 SEATALK_TOKEN_FILE = "/tmp/etf_seatalk_token.json"
 SEATALK_EMP_CACHE = "/tmp/etf_seatalk_emp_codes.json"
 
+# AI 分析（可选）
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+DEEPSEEK_API = "https://api.deepseek.com/v1/chat/completions"
+AI_ENABLED = bool(DEEPSEEK_API_KEY)
+
 # Seatalk API endpoints
 SEATALK_AUTH_API = "https://openapi.seatalk.io/auth/app_access_token"
 SEATALK_EMP_API = "https://openapi.seatalk.io/contacts/v2/get_employee_code_with_email"
@@ -234,6 +239,61 @@ def analyze():
     return r
 
 
+def ai_analyze(analysis):
+    """用 AI 对信号做上下文分析（DeepSeek），仅在信号触发时调用"""
+    if not AI_ENABLED:
+        return None
+
+    # 仅对买入信号做 AI 分析
+    if analysis.get("signal") not in ("strong_buy", "buy", "weak_buy"):
+        return None
+
+    # 构建 prompt
+    delta = analysis.get("delta", 0)
+    premium = analysis.get("iopv_premium") or analysis.get("nav_premium") or 0
+    chg = analysis.get("change_pct", 0)
+
+    prompt = f"""你是量化交易分析师。请基于以下数据对亚太精选ETF(159687)的溢价信号做简短分析(80字以内)，重点：1)这次信号和历史成功案例的相似度 2)有没有异常风险。
+
+当前数据:
+- 现价: {analysis['price']:.4f}，涨跌幅: {chg:+.2f}%
+- IOPV溢价: {premium:.2f}%
+- Δ溢价(今日vs昨日): {delta:+.2f}%
+- 信号: {analysis.get('signal_text', '')}
+- 历史胜率: {analysis.get('signal_conf', '')}
+- 振幅: {(analysis.get('high', 0) - analysis.get('low', 0)) / analysis.get('open', 1) * 100:.1f}%
+
+已知规律:
+- Δ>2%时胜率92%，Δ>1%胜率82.5%，Δ>0.5%胜率67%
+- 成功信号通常伴随5日涨势>3%和放量
+- 失败信号通常发生在缩量、5日涨幅<1%时
+- 开盘高溢价日内69%概率回落，不适合日内追涨
+- 最大单笔亏损记录-3.45%
+
+请用中文回复，格式: [相似度评估] + [风险提示]"""
+
+    try:
+        resp = requests.post(DEEPSEEK_API, json={
+            "model": "deepseek-chat",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 200,
+            "temperature": 0.3,
+        }, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        }, timeout=20)
+
+        if resp.status_code == 200:
+            data = resp.json()
+            return data["choices"][0]["message"]["content"].strip()
+        else:
+            print(f"[AI] API 错误: {resp.status_code} {resp.text[:200]}")
+    except Exception as e:
+        print(f"[AI] 调用失败: {e}")
+
+    return None
+
+
 def format_message(a):
     """格式化 Seatalk 消息（简洁版，兼容 Seatalk markdown）"""
     if "error" in a:
@@ -282,6 +342,10 @@ def format_message(a):
 ---
 📌 历史回测仅供参考，不构成投资建议
 """
+    # 附加 AI 分析
+    ai = a.get("ai_analysis")
+    if ai:
+        m += f"\n🤖 **AI 分析**\n{ai}\n"
     return m
 
 
@@ -426,6 +490,15 @@ def main():
     print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] ETF Monitor | mode={mode} | cost={COST_MODEL}")
 
     analysis = analyze()
+
+    # 信号触发时，调用 AI 做上下文分析
+    if AI_ENABLED and analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
+        print("[AI] 信号触发，调用 DeepSeek 分析...")
+        ai_result = ai_analyze(analysis)
+        if ai_result:
+            analysis["ai_analysis"] = ai_result
+            print(f"[AI] ✅ 分析完成")
+
     message = format_message(analysis)
 
     if mode == "intraday" and analysis.get("signal") not in ("strong_buy", "buy", "weak_buy"):
@@ -451,9 +524,12 @@ def main():
         if has_id and has_secret:
             token = get_access_token()
             print(f"  Token: {'✅' if token else '❌ 获取失败'}")
+        print(f"  AI 分析: {'✅ 已启用' if AI_ENABLED else '⚪ 未启用（设置 DEEPSEEK_API_KEY）'}")
         if analysis.get("est_net"):
             net_yuan = analysis['est_net'] * cost.get('capital', 20000) / 100
             print(f"  预估净收益: +{analysis['est_net']:.2f}%/笔 ≈ ¥{net_yuan:.2f}")
+        if analysis.get("ai_analysis"):
+            print(f"  AI 分析结果: {analysis['ai_analysis'][:100]}...")
 
     send_seatalk(message)
     print("Done.")
