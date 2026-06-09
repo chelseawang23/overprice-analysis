@@ -440,7 +440,7 @@ def write_diag_log(analysis, mode, ai_result=None):
 
     try:
         with open(log_file, "a") as f:
-            f.write("\\n".join(lines) + "\\n")
+            f.write("\n".join(lines) + "\n")
     except:
         pass
 
