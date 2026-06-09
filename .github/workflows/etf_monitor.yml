@@ -20,6 +20,8 @@ jobs:
   analyze:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write  # 允许自动提交和推送
     
     steps:
       - uses: actions/checkout@v4
@@ -52,3 +54,17 @@ jobs:
           fi
           echo "运行模式: $MODE (UTC $(date -u +%H:%M))"
           python etf_monitor.py --$MODE
+
+      - name: 自动提交数据更新
+        if: always()
+        run: |
+          git config user.name "ETF Bot"
+          git config user.email "etf-bot@github.com"
+          git add historical_trades.json pending_trade.json 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "无数据变更"
+          else
+            git commit -m "data: 自动更新交易数据库 [skip ci]"
+            git push origin main
+            echo "✅ 数据已推送"
+          fi
