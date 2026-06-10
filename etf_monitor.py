@@ -481,18 +481,23 @@ def ai_analyze(analysis, mode="daily"):
 
     try:
         resp = requests.post(DEEPSEEK_API, json={
-            "model": "deepseek-chat",
+            "model": "deepseek-reasoner",  # 推理模式，深度思考
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 250,
-            "temperature": 0.3,
+            "max_tokens": 4096,            # 充分输出
+            "temperature": 0.1,            # 最低温度，最专注
         }, headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
-        }, timeout=25)
+        }, timeout=60)  # 推理模式需要更长时间
 
         if resp.status_code == 200:
             data = resp.json()
-            return data["choices"][0]["message"]["content"].strip()
+            msg = data["choices"][0]["message"]
+            reasoning = msg.get("reasoning_content", "")  # 推理过程
+            content = msg.get("content", "").strip()      # 最终结论
+            if reasoning:
+                print(f"[AI] 推理过程 ({len(reasoning)}字): {reasoning[:200]}...")
+            return content or reasoning.strip()
         else:
             print(f"[AI] API 错误: {resp.status_code} {resp.text[:200]}")
     except Exception as e:
