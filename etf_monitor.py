@@ -877,17 +877,18 @@ def main():
     if not analysis.get("iopv"):
         data_quality.append("⚠️ IOPV缺失")
     if not analysis.get("nav"):
-        data_quality.append("⚠️ NAV缺失")
-    nav_date = analysis.get("nav_date", "")
-    if nav_date:
-        from datetime import date as dt_date
-        try:
-            nav_d = dt_date.fromisoformat(nav_date)
-            lag = (dt_date.today() - nav_d).days
-            if lag > 3:
-                data_quality.append(f"⚠️ NAV滞后{lag}天")
-        except:
-            pass
+        data_quality.append("⚠️ NAV暂未公布（19:00尚早）")
+    else:
+        nav_date = analysis.get("nav_date", "")
+        if nav_date:
+            from datetime import date as dt_date
+            try:
+                nav_d = dt_date.fromisoformat(nav_date)
+                lag = (dt_date.today() - nav_d).days
+                if lag > 2:
+                    data_quality.append(f"⚠️ NAV滞后{lag}天（今日NAV可能未出）")
+            except:
+                pass
     analysis["data_quality"] = " | ".join(data_quality) if data_quality else "✅ 数据正常"
 
     message = format_message(analysis)
