@@ -208,7 +208,7 @@ def analyze():
     preclose = data.get("preclose", price)
 
     # 北京时间
-    bj_time = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 北京时间")
+    bj_time = (datetime.now(datetime.timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 北京时间")
     r = {
         "time": bj_time,
         "price": price, "change_pct": data.get("change_pct", 0),
@@ -576,7 +576,9 @@ def format_message(a):
 🎯 **信号: {a.get('signal_text', 'N/A')}**
 {a.get('signal_conf', '')}
 
-    # AI 置信度标签
+"""
+
+    # AI 置信度标签（f-string 外部）
     ai_conf = a.get("ai_confidence", "")
     if ai_conf:
         conf_emoji = {"高": "🟢", "中": "🟡", "低": "🔴"}.get(ai_conf, "⚪")
@@ -586,7 +588,7 @@ def format_message(a):
         elif ai_conf == "中":
             m += "> ⚠️ AI 建议常规操作，注意风险控制  \n"
 
-
+    m += f"""
 💰 **交易成本**（{cost.get('name', 'N/A')}）
 • 资金: ¥{cost.get('capital', 0):,.0f}/笔
 • 佣金+滑点: **{cost.get('total_pct', 0):.3f}%**（约¥{cost.get('total_yuan', 0):.2f}）
