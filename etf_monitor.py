@@ -439,7 +439,10 @@ def ai_analyze(analysis, mode="daily"):
 {sim_str}
 {warning}
 
-请用中文回复，严格按格式（每行一个标签）：
+请用中文回复，严格按格式输出四行（每行一个标签，不超过40字）：
+
+[置信度]
+<高/中/低，一个词>
 
 [相似度]
 <1句话，与历史交易的相似度和差异>
@@ -450,7 +453,10 @@ def ai_analyze(analysis, mode="daily"):
 [风险]
 <1句话，当前最大风险>
 
-三行即可，每行不超过40字。"""
+置信度判定标准：
+- 高: 海外普涨+权重股多数涨+历史相似日多数盈利+溢价非极端
+- 中: 部分条件满足，有正面也有负面信号
+- 低: 海外偏弱+权重股多数跌+历史相似日亏损+溢价极端"""
     else:
         prompt = f"""你是量化交易分析师。请对亚太精选ETF(159687)做简短的**日常市场扫描**（今日无买入信号）。
 
@@ -569,6 +575,17 @@ def format_message(a):
 🎯 **信号: {a.get('signal_text', 'N/A')}**
 {a.get('signal_conf', '')}
 
+    # AI 置信度标签
+    ai_conf = a.get("ai_confidence", "")
+    if ai_conf:
+        conf_emoji = {"高": "🟢", "中": "🟡", "低": "🔴"}.get(ai_conf, "⚪")
+        m += f"{conf_emoji} **AI 置信度: {ai_conf}**  \n"
+        if ai_conf == "低":
+            m += "> ⚠️ AI 建议减半仓位或观望，当前和历史成功案例偏差较大  \n"
+        elif ai_conf == "中":
+            m += "> ⚠️ AI 建议常规操作，注意风险控制  \n"
+
+
 💰 **交易成本**（{cost.get('name', 'N/A')}）
 • 资金: ¥{cost.get('capital', 0):,.0f}/笔
 • 佣金+滑点: **{cost.get('total_pct', 0):.3f}%**（约¥{cost.get('total_yuan', 0):.2f}）
@@ -598,14 +615,23 @@ def format_message(a):
 🔍 数据质量: {a.get('data_quality', '未知')}
 📌 历史回测仅供参考，不构成投资建议
 """
-    # 附加 AI 分析（格式化标签）
+    # 附加 AI 分析（格式化标签，提取置信度）
     ai = a.get("ai_analysis")
     if ai:
+        # 提取置信度
+        import re as _re
+        conf_match = _re.search(r'\[置信度\]\s*(.+)', ai)
+        ai_conf = conf_match.group(1).strip()[:10] if conf_match else ""
+        if ai_conf:
+            a["ai_confidence"] = ai_conf
+            ai = ai.replace(conf_match.group(0), "")  # 移除原始行
+
         ai = ai.replace("[相似度]", "\n🔍 **相似度**")
         ai = ai.replace("[概况]", "\n📊 **概况**")
         ai = ai.replace("[海外]", "\n🌏 **海外**")
         ai = ai.replace("[风险]", "\n⚠️ **风险**")
         ai = ai.replace("[关注]", "\n👀 **关注**")
+        ai = _re.sub(r'\n\s*\n', '\n', ai)  # 清理空行
         m += f"\n🤖 **AI 分析**{ai}\n"
     return m
 
