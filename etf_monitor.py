@@ -885,14 +885,6 @@ def main():
     # 先结算上次的待定交易
     settled = settle_pending_trade()
 
-    # AI 分析：买入信号 + 盘后日报每天都跑
-    if AI_ENABLED and (analysis.get("signal") in ("strong_buy", "buy", "weak_buy") or mode in ("daily", "test")):
-        print(f"[AI] 调用 DeepSeek 分析 (mode={mode})...")
-        ai_result = ai_analyze(analysis, mode)
-        if ai_result:
-            analysis["ai_analysis"] = ai_result
-            print(f"[AI] ✅ 分析完成")
-
     # 信号触发时，保存待定交易
     if analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
         save_pending_trade(analysis)
@@ -935,16 +927,31 @@ def main():
 
     analysis["data_quality"] = " | ".join(data_quality) if data_quality else "✅ 数据正常"
 
-    message = format_message(analysis)
+    # 盘后日报：NAV 没出就轮询等待（最多 3 小时）
+    if mode == "daily" and not analysis.get("nav_fresh"):
+        print("NAV 尚未公布，开始轮询等待...")
+        waited = 0
+        while waited < 180:  # 最多等 3 小时
+            time.sleep(300)  # 每 5 分钟检查一次
+            waited += 5
+            print(f"  等待 {waited} 分钟...")
+            analysis = analyze()
+            if analysis.get("nav_fresh") or waited >= 180:
+                break
+        if analysis.get("nav_fresh"):
+            print(f"✅ NAV 已公布！等待 {waited} 分钟")
+        else:
+            print(f"⚠️ 等待 {waited} 分钟 NAV 仍未公布，用现有数据发送")
 
-    # 盘后日报：NAV 没出就跳过（留给 22:00 兜底）；已发过也跳过
-    if mode == "daily":
-        if today_already_sent():
-            print("今日终版已发送，跳过")
-            return
-        if not analysis.get("nav_fresh"):
-            print("NAV 尚未公布，跳过 19:00，等 22:00 兜底")
-            return
+    # AI 分析：在 NAV 确认后跑一次（用最新数据）
+    if AI_ENABLED and (analysis.get("signal") in ("strong_buy", "buy", "weak_buy") or mode in ("daily", "test")):
+        print(f"[AI] 调用 DeepSeek 分析 (mode={mode})...")
+        ai_result = ai_analyze(analysis, mode)
+        if ai_result:
+            analysis["ai_analysis"] = ai_result
+            print(f"[AI] ✅ 分析完成")
+
+    message = format_message(analysis)
 
     if mode == "intraday" and analysis.get("signal") not in ("strong_buy", "buy", "weak_buy"):
         print(f"  信号: {analysis.get('signal_text')} - 不够强，跳过发送")
