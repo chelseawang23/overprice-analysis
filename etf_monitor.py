@@ -207,8 +207,10 @@ def analyze():
     iopv = data.get("iopv")
     preclose = data.get("preclose", price)
 
+    # 北京时间
+    bj_time = (datetime.utcnow() + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 北京时间")
     r = {
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "time": bj_time,
         "price": price, "change_pct": data.get("change_pct", 0),
         "high": data["high"], "low": data["low"],
         "open": data["open"], "preclose": preclose, "iopv": iopv,
