@@ -34,7 +34,7 @@ import sys
 import json
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # ====== 配置 ======
 ETF_CODE = "159687"
@@ -208,7 +208,7 @@ def analyze():
     preclose = data.get("preclose", price)
 
     # 北京时间
-    bj_time = (datetime.now(datetime.timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 北京时间")
+    bj_time = (datetime.now(timezone.utc) + timedelta(hours=8)).strftime("%Y-%m-%d %H:%M 北京时间")
     r = {
         "time": bj_time,
         "price": price, "change_pct": data.get("change_pct", 0),
