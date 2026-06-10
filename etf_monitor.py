@@ -58,7 +58,7 @@ OVERSEAS_INDICES = {
     "恒生指数": "^HSI", "台湾加权": "^TWII", "富时亚太": "VAPU.L",
 }
 
-# 富时亚太低碳精选指数前15大权重股（yfinance ticker）
+# 富时亚太低碳精选指数前10大权重股（yfinance ticker，2d数据可靠）
 # 注意：这是指数成分股参考，非159687直接持仓（159687是联接基金）
 INDEX_HOLDINGS = [
     ("台积电", "2330.TW", 8.5), ("三星电子", "005930.KS", 6.2),
@@ -66,9 +66,6 @@ INDEX_HOLDINGS = [
     ("联邦银行", "CBA.AX", 3.2), ("BHP集团", "BHP.AX", 2.9),
     ("任天堂", "7974.T", 2.7), ("友邦保险", "1299.HK", 2.5),
     ("SK海力士", "000660.KS", 2.3), ("新加坡电信", "Z74.SI", 2.1),
-    ("三菱日联", "8306.T", 1.9), ("东京电子", "8035.T", 1.8),
-    ("瑞可利", "6098.T", 1.7), ("CSL", "CSL.AX", 1.6),
-    ("大金工业", "6367.T", 1.5),
 ]
 
 # 历史交易记录，用于相似日匹配（自动更新）
@@ -278,20 +275,24 @@ def fetch_market_context():
                     ctx["indices"][name] = round((latest - prev) / prev * 100, 2)
             except:
                 pass
-        # 权重股
+        # 权重股（带重试）
         for name, ticker, weight in INDEX_HOLDINGS:
-            try:
-                t = yf.Ticker(ticker)
-                h = t.history(period="2d")
-                if len(h) >= 2:
-                    latest = h['Close'].iloc[-1]
-                    prev = h['Close'].iloc[-2]
-                    chg = round((latest - prev) / prev * 100, 2)
-                    ctx["holdings"].append({
-                        "name": name, "ticker": ticker, "weight": weight, "chg": chg
-                    })
-            except:
-                pass
+            for attempt in range(2):
+                try:
+                    t = yf.Ticker(ticker)
+                    h = t.history(period="5d")  # 取5天避免单日缺失
+                    if len(h) >= 2:
+                        latest = h['Close'].iloc[-1]
+                        prev = h['Close'].iloc[-2]
+                        chg = round((latest - prev) / prev * 100, 2)
+                        ctx["holdings"].append({
+                            "name": name, "ticker": ticker, "weight": weight, "chg": chg
+                        })
+                    break
+                except:
+                    if attempt == 0:
+                        time.sleep(0.5)  # 等半秒重试
+                    continue
     except Exception as e:
         print(f"[Market] yfinance 获取失败: {e}")
     return ctx
@@ -432,7 +433,18 @@ def ai_analyze(analysis):
 {sim_str}
 {warning}
 
-请用中文回复，包含: [相似度评估] + [海外市场影响] + [风险提示]"""
+请用中文回复，严格按以下格式（每个标签占一行）：
+
+[相似度]
+<1句话评估与历史交易的相似度，重点说相似在哪>
+
+[海外]
+<1句话说明海外市场和权重股对当前信号的支撑或削弱>
+
+[风险]
+<1句话指出最大风险点>
+
+注意: 三行即可，每行不超过40字。不要输出标签之外的内容。"""
 
     try:
         resp = requests.post(DEEPSEEK_API, json={
@@ -548,10 +560,14 @@ def format_message(a):
 🔍 数据质量: {a.get('data_quality', '未知')}
 📌 历史回测仅供参考，不构成投资建议
 """
-    # 附加 AI 分析
+    # 附加 AI 分析（格式化标签）
     ai = a.get("ai_analysis")
     if ai:
-        m += f"\n🤖 **AI 分析**\n{ai}\n"
+        # 美化 AI 输出：把 [相似度] [海外] [风险] 换成更可读的格式
+        ai = ai.replace("[相似度]", "\n🔍 **相似度**")
+        ai = ai.replace("[海外]", "\n🌏 **海外**")
+        ai = ai.replace("[风险]", "\n⚠️ **风险**")
+        m += f"\n🤖 **AI 分析**{ai}\n"
     return m
 
 
