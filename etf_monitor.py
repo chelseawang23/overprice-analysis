@@ -681,8 +681,8 @@ def get_employee_codes():
     return SEATALK_USERS  # fallback
 
 
-def send_seatalk(message):
-    """通过 Seatalk Open API 发送消息给所有收件人"""
+def send_seatalk(message, mode="daily"):
+    """发送消息。test 模式仅通知主用户，其余通知全组"""
     if not SEATALK_APP_ID or not SEATALK_APP_SECRET:
         print("\n⚠️  未配置 SEATALK_APP_ID / SEATALK_APP_SECRET")
         print("=" * 50)
@@ -691,7 +691,9 @@ def send_seatalk(message):
         return False
 
     token = get_access_token()
-    emp_codes = get_employee_codes()
+    all_codes = get_employee_codes()
+    # test 模式只发第一个人（主用户）
+    emp_codes = all_codes[:1] if mode == "test" else all_codes
     if not token:
         print("\n⚠️  无法获取 access token")
         print("=" * 50)
@@ -928,7 +930,7 @@ def main():
         if analysis.get("ai_analysis"):
             print(f"  AI 分析结果: {analysis['ai_analysis'][:100]}...")
 
-    send_seatalk(message)
+    send_seatalk(message, mode)
     print("Done.")
 
 
