@@ -360,14 +360,17 @@ def find_similar_days(current, trades, top_n=3):
     return scored[:top_n]
 
 
-def ai_analyze(analysis):
+def ai_analyze(analysis, mode="daily"):
     """增强 AI 分析：多市场数据 + 相似日匹配"""
     if not AI_ENABLED:
         return None
 
     signal = analysis.get("signal", "")
-    if signal not in ("strong_buy", "buy", "weak_buy"):
-        return None
+    is_buy = signal in ("strong_buy", "buy", "weak_buy")
+
+    # 盘后模式 / 无信号时也分析（市场扫描模式）
+    if not is_buy and mode not in ("daily", "test"):
+        return None  # 盘中无信号时跳过，节省 token
 
     delta = analysis.get("delta", 0)
     premium = analysis.get("iopv_premium") or analysis.get("nav_premium") or 0
@@ -415,8 +418,9 @@ def ai_analyze(analysis):
     if wins < len(similar) / 2:
         warning = "⚠️ 相似历史交易日多数亏损，需谨慎！"
 
-    # 3. 构建增强 prompt
-    prompt = f"""你是量化交易分析师。请基于以下数据对亚太精选ETF(159687)的溢价信号做简短分析(120字以内)。
+    # 3. 构建 prompt（买入信号 vs 日常扫描）
+    if is_buy:
+        prompt = f"""你是量化交易分析师。请基于以下数据对亚太精选ETF(159687)的**买入信号**做简短分析。
 
 📊 当前信号:
 - 现价: {price:.4f}，涨跌幅: {chg:+.2f}%
@@ -428,25 +432,52 @@ def ai_analyze(analysis):
 🌏 海外指数:
 {market_str}
 
-📌 权重股表现(指数成分，非直接持仓):
+📌 权重股表现:
 {holdings_str}
 
 📜 最相似历史交易:
 {sim_str}
 {warning}
 
-请用中文回复，严格按以下格式（每个标签占一行）：
+请用中文回复，严格按格式（每行一个标签）：
 
 [相似度]
-<1句话评估与历史交易的相似度，重点说相似在哪>
+<1句话，与历史交易的相似度和差异>
 
 [海外]
-<1句话说明海外市场和权重股对当前信号的支撑或削弱>
+<1句话，海外市场是否支撑当前信号>
 
 [风险]
-<1句话指出最大风险点>
+<1句话，当前最大风险>
 
-注意: 三行即可，每行不超过40字。不要输出标签之外的内容。"""
+三行即可，每行不超过40字。"""
+    else:
+        prompt = f"""你是量化交易分析师。请对亚太精选ETF(159687)做简短的**日常市场扫描**（今日无买入信号）。
+
+📊 今日概况:
+- 现价: {price:.4f}，涨跌幅: {chg:+.2f}%
+- IOPV溢价: {premium:.2f}%
+- Δ溢价: {delta:+.2f}%（未触发买入阈值）
+- 振幅: {amp:.1f}%
+
+🌏 海外指数:
+{market_str}
+
+📌 权重股表现:
+{holdings_str}
+
+请用中文回复，严格按格式（每行一个标签）：
+
+[概况]
+<1句话，今日溢价和市场的整体状态>
+
+[海外]
+<1句话，海外市场对ETF走势的影响>
+
+[关注]
+<1句话，明日需要关注的风险或机会>
+
+三行即可，每行不超过40字。"""
 
     try:
         resp = requests.post(DEEPSEEK_API, json={
@@ -565,10 +596,11 @@ def format_message(a):
     # 附加 AI 分析（格式化标签）
     ai = a.get("ai_analysis")
     if ai:
-        # 美化 AI 输出：把 [相似度] [海外] [风险] 换成更可读的格式
         ai = ai.replace("[相似度]", "\n🔍 **相似度**")
+        ai = ai.replace("[概况]", "\n📊 **概况**")
         ai = ai.replace("[海外]", "\n🌏 **海外**")
         ai = ai.replace("[风险]", "\n⚠️ **风险**")
+        ai = ai.replace("[关注]", "\n👀 **关注**")
         m += f"\n🤖 **AI 分析**{ai}\n"
     return m
 
@@ -787,15 +819,16 @@ def main():
     # 先结算上次的待定交易
     settled = settle_pending_trade()
 
-    # 信号触发时，调用 AI 做上下文分析，并保存待定交易
+    # AI 分析：买入信号 + 盘后日报每天都跑
+    if AI_ENABLED and (analysis.get("signal") in ("strong_buy", "buy", "weak_buy") or mode in ("daily", "test")):
+        print(f"[AI] 调用 DeepSeek 分析 (mode={mode})...")
+        ai_result = ai_analyze(analysis, mode)
+        if ai_result:
+            analysis["ai_analysis"] = ai_result
+            print(f"[AI] ✅ 分析完成")
+
+    # 信号触发时，保存待定交易
     if analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
-        if AI_ENABLED:
-            print("[AI] 信号触发，调用 DeepSeek 分析...")
-            ai_result = ai_analyze(analysis)
-            if ai_result:
-                analysis["ai_analysis"] = ai_result
-                print(f"[AI] ✅ 分析完成")
-        # 保存待定交易（下次运行时结算）
         save_pending_trade(analysis)
 
     # 盘后模式：如果结算了交易，把结果加到消息里
