@@ -555,8 +555,7 @@ def format_message(a):
     emoji = E.get(a.get("signal", "neutral"), "ℹ️")
     cost = a.get("cost", {})
 
-    version = "📋 终版" if a.get("nav_fresh") else "📡 早版(NAV待出,22:00推送终版)"
-    m = f"""{emoji} **亚太精选ETF 溢价监控** {version}
+    m = f"""{emoji} **亚太精选ETF 溢价监控**
 {a['time']}
 
 📊 **实时行情**
@@ -833,38 +832,6 @@ def save_pending_trade(analysis):
     print(f"[Trade] 待定交易已保存: {trade['date']} @ {trade['entry_price']:.3f}")
 
 
-NAV_STATUS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "nav_status.json")
-
-def should_send_daily():
-    """判断盘后日报是否应该发送（NAV是否已公布）"""
-    nav = fetch_nav()
-    if not nav or not nav.get("nav"):
-        return False, None
-
-    nav_date = nav.get("date", "")
-    today = datetime.now().strftime("%Y-%m-%d")
-    if nav_date < today:
-        return False, None  # NAV 还是昨天的，没更新
-
-    return True, nav
-
-
-def today_already_sent():
-    """检查今天是否已经发过终版"""
-    try:
-        with open(NAV_STATUS_FILE) as f:
-            s = json.load(f)
-            return s.get("date") == datetime.now().strftime("%Y-%m-%d") and s.get("sent")
-    except:
-        return False
-
-
-def mark_sent_today():
-    """标记今天已发送"""
-    with open(NAV_STATUS_FILE, "w") as f:
-        json.dump({"date": datetime.now().strftime("%Y-%m-%d"), "sent": True}, f)
-
-
 def main():
     now = datetime.now()
 
@@ -916,36 +883,9 @@ def main():
                     data_quality.append(f"⚠️ NAV滞后{lag}天（今日NAV可能未出）")
             except:
                 pass
-    # 判断 NAV 是否已公布（今日净值）
-    from datetime import date as _dt_date
-    nav_fresh = False
-    if analysis.get("nav_date"):
-        try:
-            nav_d = _dt_date.fromisoformat(analysis["nav_date"])
-            nav_fresh = (_dt_date.today() - nav_d).days <= 1
-        except:
-            pass
-    analysis["nav_fresh"] = nav_fresh
-
     analysis["data_quality"] = " | ".join(data_quality) if data_quality else "✅ 数据正常"
 
-    # 盘后日报：NAV 没出就轮询等待（最多 3 小时）
-    if mode == "daily" and not analysis.get("nav_fresh"):
-        print("NAV 尚未公布，开始轮询等待...")
-        waited = 0
-        while waited < 180:  # 最多等 3 小时
-            time.sleep(300)  # 每 5 分钟检查一次
-            waited += 5
-            print(f"  等待 {waited} 分钟...")
-            analysis = analyze()
-            if analysis.get("nav_fresh") or waited >= 180:
-                break
-        if analysis.get("nav_fresh"):
-            print(f"✅ NAV 已公布！等待 {waited} 分钟")
-        else:
-            print(f"⚠️ 等待 {waited} 分钟 NAV 仍未公布，用现有数据发送")
-
-    # AI 分析：在 NAV 确认后跑一次（用最新数据）
+    # AI 分析：买入信号 + 盘后日报每天都跑
     if AI_ENABLED and (analysis.get("signal") in ("strong_buy", "buy", "weak_buy") or mode in ("daily", "test")):
         print(f"[AI] 调用 DeepSeek 分析 (mode={mode})...")
         ai_result = ai_analyze(analysis, mode)
@@ -996,11 +936,6 @@ def main():
             print(f"  AI 分析结果: {analysis['ai_analysis'][:100]}...")
 
     send_seatalk(message, mode)
-
-    # 盘后终版发送后标记
-    if mode == "daily" and analysis.get("nav_fresh"):
-        mark_sent_today()
-
     print("Done.")
 
 
