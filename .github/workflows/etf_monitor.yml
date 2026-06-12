@@ -1,41 +1,32 @@
-name: ETF 溢价监控
+name: "ETF Monitor"
 
 on:
   schedule:
-    # 北京时间 14:30 + 14:35 (UTC 6:30+6:35) - 盘中提醒（双保险防止漏触发）
     - cron: '30 6 * * 1-5'
-    - cron: '35 6 * * 1-5'
-    # 北京时间 19:00 (UTC 11:00) - 盘后日报（NAV已出，次日交易指引）
     - cron: '0 11 * * 1-5'
-  
   workflow_dispatch:
     inputs:
       mode:
-        description: '运行模式'
+        description: 'Run mode'
         required: true
         default: 'test'
         type: choice
         options: [test, intraday, daily]
 
 jobs:
-  analyze:
+  run:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write  # 允许自动提交和推送
-    
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-
-      - name: 安装依赖
-        run: pip install -r requirements.txt
-
-      - name: 运行分析
+      - run: pip install -r requirements.txt
+      - name: Analyze
         env:
           SEATALK_APP_ID: ${{ secrets.SEATALK_APP_ID }}
           SEATALK_APP_SECRET: ${{ secrets.SEATALK_APP_SECRET }}
@@ -44,7 +35,6 @@ jobs:
           COST_MODEL: ${{ vars.COST_MODEL || 'realistic' }}
           TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '20000' }}
         run: |
-          # 根据 UTC 时间判断模式
           HOUR=$(date -u +%H)
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
@@ -53,19 +43,17 @@ jobs:
           else
             MODE="daily"
           fi
-          echo "运行模式: $MODE (UTC $(date -u +%H:%M))"
+          echo "Mode: $MODE (UTC $HOUR:$(date -u +%M))"
           python etf_monitor.py --$MODE
-
-      - name: 自动提交数据更新
+      - name: Commit data
         if: always()
         run: |
           git config user.name "ETF Bot"
-          git config user.email "etf-bot@github.com"
-          git add historical_trades.json pending_trade.json run.log nav_status.json 2>/dev/null || true
+          git config user.email "bot@etf.local"
+          git add historical_trades.json pending_trade.json run.log 2>/dev/null || true
           if git diff --cached --quiet; then
-            echo "无数据变更"
+            echo "No changes"
           else
-            git commit -m "data: 自动更新交易数据库 [skip ci]"
+            git commit -m "data: auto update"
             git push origin main
-            echo "✅ 数据已推送"
           fi
