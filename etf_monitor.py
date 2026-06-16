@@ -895,11 +895,7 @@ def main():
 
     message = format_message(analysis)
 
-    if mode == "intraday" and analysis.get("signal") not in ("strong_buy", "buy", "weak_buy"):
-        print(f"  信号: {analysis.get('signal_text')} - 不够强，跳过发送")
-        # 心跳记录：验证定时任务在跑
-        write_diag_log(analysis, mode)
-        return
+    # 盘中模式每天都发，不跳过。无信号时标注"观望"
 
     if mode == "test":
         print("\n" + "=" * 50)
