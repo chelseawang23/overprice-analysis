@@ -712,8 +712,8 @@ def send_seatalk(message, mode="daily"):
         body = {
             "group_id": SEATALK_GROUP_ID,
             "message": {
-                "tag": "markdown",
-                "markdown": {"content": message},
+                "tag": "text",
+                "text": {"format": 1, "content": message},
             }
         }
         resp = requests.post(SEATALK_GROUP_API, json=body, headers=headers, timeout=15)
@@ -820,8 +820,10 @@ def settle_pending_trade():
         "type": "real",  # 标记为实盘交易
     }
 
-    # 追加到历史数据库
+    # 追加到历史数据库（按日期去重，避免重复记录）
     trades = load_historical_trades()
+    # 移除同日同类型记录
+    trades = [t for t in trades if not (t.get("date") == trade["date"] and t.get("type") == trade.get("type"))]
     trades.append(trade)
 
     with open(HISTORICAL_TRADES_FILE, "w") as f:
