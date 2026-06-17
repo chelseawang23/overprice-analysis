@@ -35,15 +35,15 @@ jobs:
           COST_MODEL: ${{ vars.COST_MODEL || 'realistic' }}
           TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '20000' }}
         run: |
-          HOUR=$(date -u +%H)
+          H=$(date -u +%H | sed 's/^0//')
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
-          elif [ "$HOUR" -lt 10 ]; then
+          elif [ "$H" -lt 10 ]; then
             MODE="intraday"
           else
             MODE="daily"
           fi
-          echo "Mode: $MODE (UTC $HOUR:$(date -u +%M))"
+          echo "Mode: $MODE (UTC $H:$(date -u +%M))"
           python etf_monitor.py --$MODE
       - name: Commit data
         if: always()
@@ -54,6 +54,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes"
           else
-            git commit -m "data: auto update"
+            git commit -m "data: auto update [skip ci]"
             git push origin main
           fi
