@@ -32,6 +32,7 @@ jobs:
           SEATALK_APP_SECRET: ${{ secrets.SEATALK_APP_SECRET }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           SEATALK_USER_EMAILS: ${{ vars.SEATALK_USER_EMAILS || 'huixia.huang@shopee.com,jiayu.lin@shopee.com' }}
+          SEATALK_GROUP_ID: ${{ vars.SEATALK_GROUP_ID || '' }}
           COST_MODEL: ${{ vars.COST_MODEL || 'realistic' }}
           TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '20000' }}
         run: |
