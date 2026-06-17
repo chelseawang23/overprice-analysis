@@ -840,13 +840,23 @@ def settle_pending_trade():
 
 
 def save_pending_trade(analysis):
-    """信号触发时保存待定交易"""
+    """信号触发时保存待定交易（同一天只保留第一次的准确记录）"""
+    # 检查今天是否已有待定交易
+    try:
+        with open(PENDING_TRADE_FILE) as f:
+            existing = json.load(f)
+            if existing.get("date") == datetime.now().strftime("%Y-%m-%d"):
+                print(f"[Trade] 今日已有待定交易，跳过重复保存")
+                return
+    except:
+        pass
+
     trade = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "entry_price": analysis["price"],
         "delta": analysis.get("delta", 0),
         "premium": analysis.get("iopv_premium") or analysis.get("nav_premium") or 0,
-        "vol_ratio": 1.0,  # 盘中简化
+        "vol_ratio": 1.0,
         "trend_5d": analysis.get("change_pct", 0),
     }
     with open(PENDING_TRADE_FILE, "w") as f:
