@@ -370,10 +370,6 @@ def ai_analyze(analysis, mode="daily"):
     signal = analysis.get("signal", "")
     is_buy = signal in ("strong_buy", "buy", "weak_buy")
 
-    # 盘后模式 / 无信号时也分析（市场扫描模式）
-    if not is_buy and mode not in ("daily", "test"):
-        return None  # 盘中无信号时跳过，节省 token
-
     delta = analysis.get("delta", 0)
     premium = analysis.get("iopv_premium") or analysis.get("nav_premium") or 0
     chg = analysis.get("change_pct", 0)
@@ -420,8 +416,35 @@ def ai_analyze(analysis, mode="daily"):
     if wins < len(similar) / 2:
         warning = "⚠️ 相似历史交易日多数亏损，需谨慎！"
 
-    # 3. 构建 prompt（买入信号 vs 日常扫描）
-    if is_buy:
+    # 3. 构建 prompt
+    if signal == "danger":
+        prompt = f"""你是量化交易分析师。请对亚太精选ETF(159687)的**高溢价见顶风险**信号做简短分析。
+
+📊 当前数据:
+- 现价: {price:.4f}，涨跌幅: {chg:+.2f}%
+- IOPV溢价: {premium:.2f}%（高位）
+- Δ溢价: {delta:+.2f}%（收缩中）
+- 振幅: {amp:.1f}%
+
+🌏 海外指数:
+{market_str}
+
+📌 权重股表现:
+{holdings_str}
+
+请用中文回复，严格按格式（每行一个标签）：
+
+[概况]
+<1句话，溢价水平和风险程度>
+
+[海外]
+<1句话，海外市场是否支持溢价维持>
+
+[关注]
+<1句话，建议观望还是减仓，以及关键观察点>
+
+三行即可，每行不超过40字。"""
+    elif is_buy:
         prompt = f"""你是量化交易分析师。请基于以下数据对亚太精选ETF(159687)的**买入信号**做简短分析。
 
 📊 当前信号:
@@ -917,8 +940,8 @@ def main():
                 pass
     analysis["data_quality"] = " | ".join(data_quality) if data_quality else "✅ 数据正常"
 
-    # AI 分析：买入信号 + 盘后日报每天都跑
-    if AI_ENABLED and (analysis.get("signal") in ("strong_buy", "buy", "weak_buy") or mode in ("daily", "test")):
+    # AI 分析：每次都跑
+    if AI_ENABLED:
         print(f"[AI] 调用 DeepSeek 分析 (mode={mode})...")
         ai_result = ai_analyze(analysis, mode)
         if ai_result:
