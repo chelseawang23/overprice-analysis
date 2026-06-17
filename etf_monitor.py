@@ -75,7 +75,9 @@ PENDING_TRADE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "p
 # Seatalk API endpoints
 SEATALK_AUTH_API = "https://openapi.seatalk.io/auth/app_access_token"
 SEATALK_EMP_API = "https://openapi.seatalk.io/contacts/v2/get_employee_code_with_email"
-SEATALK_SEND_API = "https://openapi.seatalk.io/messaging/v2/single_chat"
+SEATALK_SINGLE_API = "https://openapi.seatalk.io/messaging/v2/single_chat"
+SEATALK_GROUP_API = "https://openapi.seatalk.io/messaging/v2/group_chat"
+SEATALK_GROUP_ID = os.environ.get("SEATALK_GROUP_ID", "")  # 群聊ID，设置后发群聊而非私聊
 
 COST_MODELS = {
     "ideal":        {"name": "理想（免五+万一+无滑点）", "commission": 0.010*2, "min_fee": 0, "slippage": 0.00},
@@ -693,9 +695,6 @@ def send_seatalk(message, mode="daily"):
         return False
 
     token = get_access_token()
-    all_codes = get_employee_codes()
-    # test 模式只发第一个人（主用户）
-    emp_codes = all_codes[:1] if mode == "test" else all_codes
     if not token:
         print("\n⚠️  无法获取 access token")
         print("=" * 50)
@@ -708,6 +707,28 @@ def send_seatalk(message, mode="daily"):
         "Authorization": f"Bearer {token}",
     }
 
+    # 群聊模式：设置 SEATALK_GROUP_ID 后发群聊
+    if SEATALK_GROUP_ID:
+        body = {
+            "group_id": SEATALK_GROUP_ID,
+            "message": {
+                "tag": "markdown",
+                "markdown": {"content": message},
+            }
+        }
+        resp = requests.post(SEATALK_GROUP_API, json=body, headers=headers, timeout=15)
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("code") == 0:
+                print(f"[Seatalk] ✅ 已发送到群 {SEATALK_GROUP_ID}")
+                return True
+            print(f"[Seatalk] ❌ 群发失败: {data.get('message', '')}")
+        return False
+
+    # 私聊模式：发给每个用户
+    all_codes = get_employee_codes()
+    emp_codes = all_codes[:1] if mode == "test" else all_codes
+
     def send_one(emp_code):
         body = {
             "employee_code": emp_code,
@@ -716,7 +737,7 @@ def send_seatalk(message, mode="daily"):
                 "markdown": {"content": message},
             }
         }
-        resp = requests.post(SEATALK_SEND_API, json=body, headers=headers, timeout=15)
+        resp = requests.post(SEATALK_SINGLE_API, json=body, headers=headers, timeout=15)
         if resp.status_code == 200:
             data = resp.json()
             return data.get("code") == 0, data
@@ -729,7 +750,6 @@ def send_seatalk(message, mode="daily"):
             print(f"[Seatalk] ✅ 已发送到 {emp_code}")
             success_count += 1
         elif data.get("code") in (100, 3001):
-            # Token 过期，清除缓存重试
             print(f"[Seatalk] 清除缓存重试...")
             try:
                 os.remove(SEATALK_TOKEN_FILE)
