@@ -238,19 +238,31 @@ def analyze():
     delta = r.get("delta", 0)
     prem = r.get("iopv_premium") or r.get("nav_premium") or 0
 
+    # 从历史数据库动态计算胜率
+    trades = load_historical_trades()
+    all_trades = len(trades)
+    all_wins = sum(1 for t in trades if t.get("result") == "win")
+    all_wr = f"{all_wins/all_trades*100:.0f}%（{all_trades}笔）" if all_trades > 0 else "无数据"
+
+    def _wr(t_min, t_max):
+        s = [t for t in trades if t_min < abs(t.get("delta", 0)) <= t_max]
+        if not s: return "无数据"
+        w = sum(1 for t in s if t["result"] == "win")
+        return f"{w/len(s)*100:.0f}%（{len(s)}笔）"
+
     signal_map = [
-        (lambda d, p: d > 2.0, "strong_buy", "🟢 强烈买入！", 1.40, "92.0%（25次）"),
-        (lambda d, p: d > 1.0, "buy", "🟢 买入信号", 0.93, "82.5%（57次）"),
-        (lambda d, p: d > 0.5, "weak_buy", "🟡 弱买入信号", 0.46, "66.9%（124次）"),
-        (lambda d, p: p > 5 and d < 0, "danger", "🔴 高溢价见顶风险", 0, "不追"),
+        (lambda d, p: d > 2.0, "strong_buy", "🟢 强烈买入！", _wr(2.0, 99), _wr(2.0, 99) if "无" not in _wr(2.0, 99) else 1.40),
+        (lambda d, p: d > 1.0, "buy", "🟢 买入信号", _wr(1.0, 2.0), _wr(1.0, 2.0) if "无" not in _wr(1.0, 2.0) else 0.93),
+        (lambda d, p: d > 0.5, "weak_buy", "🟡 弱买入信号", _wr(0.5, 1.0), _wr(0.5, 1.0) if "无" not in _wr(0.5, 1.0) else 0.46),
+        (lambda d, p: p > 5 and d < 0, "danger", "🔴 高溢价见顶风险", "不追", 0),
     ]
-    for cond, sig, text, est_gross, conf in signal_map:
+    for cond, sig, text, conf, est_gross in signal_map:
         if cond(delta, prem):
             r["signal"] = sig
             r["signal_text"] = f"{text} Δ溢价 {delta:+.2f}%"
-            r["signal_conf"] = f"历史胜率 {conf}"
-            r["est_gross"] = est_gross
-            r["est_net"] = round(est_gross - cost["total_pct"], 2)
+            r["signal_conf"] = f"历史胜率 {conf}" if isinstance(conf, str) and "无" not in conf else f"全历史胜率 {all_wr}"
+            r["est_gross"] = est_gross if isinstance(est_gross, (int, float)) else (all_wins/all_trades*100 if all_trades > 0 else 0)
+            r["est_net"] = round(r["est_gross"] - cost["total_pct"], 2)
             r["cost"] = cost
             return r
 
