@@ -736,8 +736,8 @@ def send_seatalk(message, mode="daily"):
         "Authorization": f"Bearer {token}",
     }
 
-    # 群聊模式：设置 SEATALK_GROUP_ID 后发群聊
-    if SEATALK_GROUP_ID:
+    # 群聊模式：非 test 模式且设置了 GROUP_ID 时发群聊
+    if SEATALK_GROUP_ID and mode != "test":
         body = {
             "group_id": SEATALK_GROUP_ID,
             "message": {
