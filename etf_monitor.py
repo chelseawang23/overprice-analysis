@@ -820,7 +820,10 @@ def settle_pending_trade():
     except:
         return None  # 无待定交易
 
-    # 获取当前价格作为出场价（次日开盘价）
+    # 今天的交易还没完成，不能结算（要到明天开盘才知道结果）
+    if pending.get("date") == datetime.now().strftime("%Y-%m-%d"):
+        return None
+
     price = pending.get("entry_price", 0)
     if price <= 0:
         return None
