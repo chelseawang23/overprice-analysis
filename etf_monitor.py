@@ -910,10 +910,11 @@ def main():
 
     print(f"[{now.strftime('%Y-%m-%d %H:%M:%S')}] ETF Monitor | mode={mode} | cost={COST_MODEL}")
 
-    analysis = analyze()
-
     # 先结算上次的待定交易
     settled = settle_pending_trade()
+
+    # 结算后再分析（确保胜率用最新数据）
+    analysis = analyze()
 
     # 信号触发时，保存待定交易
     if analysis.get("signal") in ("strong_buy", "buy", "weak_buy"):
