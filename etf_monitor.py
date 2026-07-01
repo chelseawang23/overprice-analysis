@@ -244,19 +244,27 @@ def analyze():
     total_wins = sum(1 for t in trades if t.get("result") == "win")
     dynamic_wr = f"{total_wins/total_n*100:.0f}%（{total_n}笔）" if total_n > 0 else "无数据"
 
+    # 动态计算历史平均收益（全部交易，非写死）
+    all_rets = [t.get("ret", 0) for t in trades]
+    dynamic_avg = sum(all_rets) / len(all_rets) if all_rets else 0
+
     signal_map = [
-        (lambda d, p: d > 2.0, "strong_buy", "🟢 强烈买入！", 1.40),
-        (lambda d, p: d > 1.0, "buy", "🟢 买入信号", 0.93),
-        (lambda d, p: d > 0.5, "weak_buy", "🟡 弱买入信号", 0.46),
-        (lambda d, p: p > 5 and d < 0, "danger", "🔴 高溢价见顶风险", 0),
+        (lambda d, p: d > 2.0, "strong_buy", "🟢 强烈买入！"),
+        (lambda d, p: d > 1.0, "buy", "🟢 买入信号"),
+        (lambda d, p: d > 0.5, "weak_buy", "🟡 弱买入信号"),
+        (lambda d, p: p > 5 and d < 0, "danger", "🔴 高溢价见顶风险"),
     ]
-    for cond, sig, text, est_gross in signal_map:
+    for cond, sig, text in signal_map:
         if cond(delta, prem):
             r["signal"] = sig
             r["signal_text"] = f"{text} Δ溢价 {delta:+.2f}%"
             r["signal_conf"] = f"历史胜率 {dynamic_wr}"
-            r["est_gross"] = est_gross
-            r["est_net"] = round(est_gross - cost["total_pct"], 2)
+            if sig == "danger":
+                r["est_gross"] = 0
+                r["est_net"] = round(0 - cost["total_pct"], 2)
+            else:
+                r["est_gross"] = round(dynamic_avg, 2)
+                r["est_net"] = round(dynamic_avg - cost["total_pct"], 2)
             r["cost"] = cost
             return r
 
