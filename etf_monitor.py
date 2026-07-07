@@ -350,26 +350,31 @@ def _default_trades():
 
 def find_similar_days(current, trades, top_n=3):
     """用特征向量找最相似的历史交易日"""
+    import math
     features = ["delta", "premium", "trend_5d"]
 
     def vector(t):
-        return [abs(t.get(f, 0)) for f in features]
+        return [abs(t.get(f, 0) or 0) for f in features]
 
     cur_vec = vector(current)
     norm_c = sum(x*x for x in cur_vec) ** 0.5
 
-    if norm_c == 0:
+    if norm_c == 0 or math.isnan(norm_c):
         return []
 
     scored = []
     for t in trades:
         t_vec = vector(t)
-        norm_t = sum(x*x for x in t_vec) ** 0.5
-        if norm_t == 0:
+        # 跳过含 NaN 的记录
+        if any(math.isnan(v) for v in t_vec):
             continue
-        # 余弦相似度
+        norm_t = sum(x*x for x in t_vec) ** 0.5
+        if norm_t == 0 or math.isnan(norm_t):
+            continue
         dot = sum(a*b for a,b in zip(cur_vec, t_vec))
         sim = dot / (norm_c * norm_t)
+        if math.isnan(sim):
+            continue
         scored.append({**t, "similarity": round(sim * 100)})
 
     scored.sort(key=lambda x: x["similarity"], reverse=True)
