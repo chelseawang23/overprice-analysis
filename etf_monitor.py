@@ -160,7 +160,7 @@ def fetch_realtime():
     params = {"fields": "prod_name,last_px,px_change,px_change_rate,high_px,low_px,open_px,preclose_px,iopv",
               "prod_code": f"{ETF_CODE}.SZ"}
     try:
-        r = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        r = requests.get(url, params=params, headers={"User-Agent": "Mozilla/5.0"}, timeout=30)
         d = r.json()
         if d.get("code") == 20000:
             s = d["data"]["snapshot"].get(f"{ETF_CODE}.SZ", [])
@@ -385,6 +385,8 @@ def ai_analyze(analysis, mode="daily"):
     """增强 AI 分析：多市场数据 + 相似日匹配"""
     if not AI_ENABLED:
         return None
+    if "error" in analysis:
+        return None  # 数据获取失败，跳过 AI
 
     signal = analysis.get("signal", "")
     is_buy = signal in ("strong_buy", "buy", "weak_buy")
