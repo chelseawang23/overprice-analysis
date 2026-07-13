@@ -79,6 +79,10 @@ SEATALK_SINGLE_API = "https://openapi.seatalk.io/messaging/v2/single_chat"
 SEATALK_GROUP_API = "https://openapi.seatalk.io/messaging/v2/group_chat"
 SEATALK_GROUP_ID = os.environ.get("SEATALK_GROUP_ID", "")  # 群聊ID，设置后发群聊而非私聊
 
+# 飞书(Lark)自定义机器人 Webhook
+LARK_WEBHOOK_URL = os.environ.get("LARK_WEBHOOK_URL", "")
+LARK_SECRET = os.environ.get("LARK_SECRET", "")  # 若机器人开启了"签名校验"才需要，关键词校验则不需要
+
 COST_MODELS = {
     "ideal":        {"name": "理想（免五+万一+无滑点）", "commission": 0.010*2, "min_fee": 0, "slippage": 0.00},
     "low":          {"name": "低佣金（免五+万1.5+0.05%滑点）", "commission": 0.015*2, "min_fee": 0, "slippage": 0.05},
@@ -827,6 +831,71 @@ def send_seatalk(message, mode="daily"):
         return False
 
 
+def _lark_markdown(message):
+    """把原有的 Seatalk/通用 markdown 转成飞书 lark_md 兼容格式（去掉不支持的语法）"""
+    # 飞书 lark_md 支持 **粗体**，不支持 markdown 的 "> 引用" 块，简单去掉 "> " 前缀
+    lines = []
+    for line in message.split("\n"):
+        if line.strip().startswith(">"):
+            line = line.strip().lstrip(">").strip()
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def send_lark(message, mode="daily"):
+    """通过飞书自定义机器人 Webhook 发送消息（interactive 卡片，支持 markdown 加粗）"""
+    if not LARK_WEBHOOK_URL:
+        print("\n⚠️  未配置 LARK_WEBHOOK_URL")
+        print("=" * 50)
+        print(message)
+        print("=" * 50)
+        return False
+
+    content = _lark_markdown(message)
+    body = {
+        "msg_type": "interactive",
+        "card": {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": "亚太精选ETF 溢价监控"},
+                "template": "blue",
+            },
+            "elements": [
+                {"tag": "div", "text": {"tag": "lark_md", "content": content}},
+            ],
+        },
+    }
+
+    # 若开启了签名校验，附带 timestamp + sign
+    if LARK_SECRET:
+        import base64
+        import hashlib
+        import hmac
+
+        ts = str(int(time.time()))
+        string_to_sign = f"{ts}\n{LARK_SECRET}"
+        hmac_code = hmac.new(string_to_sign.encode("utf-8"), digestmod=hashlib.sha256).digest()
+        sign = base64.b64encode(hmac_code).decode("utf-8")
+        body["timestamp"] = ts
+        body["sign"] = sign
+
+    try:
+        resp = requests.post(LARK_WEBHOOK_URL, json=body, timeout=15)
+        data = resp.json()
+        if data.get("StatusCode") == 0 or data.get("code") == 0:
+            print("[Lark] ✅ 已发送到飞书")
+            return True
+        print(f"[Lark] ❌ 发送失败: {data}")
+    except Exception as e:
+        print(f"[Lark] ❌ 异常: {e}")
+
+    print("\n⚠️  发送失败，消息内容:")
+    print("=" * 50)
+    print(message)
+    print("=" * 50)
+    return False
+
+
 def settle_pending_trade():
     """结算上次的待定交易，自动更新历史数据库"""
     try:
@@ -988,14 +1057,7 @@ def main():
         cost = analysis.get("cost", {})
         print(f"  成本: {cost.get('total_pct', 'N/A')}%/笔 ≈ ¥{cost.get('total_yuan', 'N/A')}")
         print(f"  信号: {analysis.get('signal_text', 'N/A')}")
-        has_id = bool(SEATALK_APP_ID)
-        has_secret = bool(SEATALK_APP_SECRET)
-        print(f"  Seatalk 收件人: {', '.join(SEATALK_USERS)}")
-        print(f"  App ID: {'✅' if has_id else '⚠️ 未设置'}")
-        print(f"  App Secret: {'✅' if has_secret else '⚠️ 未设置'}")
-        if has_id and has_secret:
-            token = get_access_token()
-            print(f"  Token: {'✅' if token else '❌ 获取失败'}")
+        print(f"  飞书 Webhook: {'✅ 已配置' if LARK_WEBHOOK_URL else '⚠️ 未设置 LARK_WEBHOOK_URL'}")
         print(f"  AI 分析: {'✅ 已启用' if AI_ENABLED else '⚪ 未启用（设置 DEEPSEEK_API_KEY）'}")
         # 历史数据库
         trades = load_historical_trades()
@@ -1011,7 +1073,7 @@ def main():
         if analysis.get("ai_analysis"):
             print(f"  AI 分析结果: {analysis['ai_analysis'][:100]}...")
 
-    send_seatalk(message, mode)
+    send_lark(message, mode)
     print("Done.")
 
 

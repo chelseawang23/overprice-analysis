@@ -9,6 +9,9 @@ on:
         default: 'test'
         type: choice
         options: [test, intraday, daily]
+  schedule:
+    # 北京时间 14:30 = UTC 06:30，仅工作日（周一至周五）触发
+    - cron: '30 6 * * 1-5'
 
 jobs:
   run:
@@ -25,23 +28,18 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Analyze
         env:
-          SEATALK_APP_ID: ${{ secrets.SEATALK_APP_ID }}
-          SEATALK_APP_SECRET: ${{ secrets.SEATALK_APP_SECRET }}
+          LARK_WEBHOOK_URL: ${{ secrets.LARK_WEBHOOK_URL }}
+          LARK_SECRET: ${{ secrets.LARK_SECRET }}
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          SEATALK_USER_EMAILS: ${{ vars.SEATALK_USER_EMAILS || 'huixia.huang@shopee.com,jiayu.lin@shopee.com' }}
-          SEATALK_GROUP_ID: ${{ vars.SEATALK_GROUP_ID || '' }}
           COST_MODEL: ${{ vars.COST_MODEL || 'realistic' }}
-          TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '20000' }}
+          TRADE_CAPITAL: ${{ vars.TRADE_CAPITAL || '750' }}
         run: |
-          H=$(date -u +%H | sed 's/^0//')
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             MODE="${{ github.event.inputs.mode }}"
-          elif [ "$H" -lt 10 ]; then
-            MODE="intraday"
           else
-            MODE="daily"
+            MODE="intraday"
           fi
-          echo "Mode: $MODE (UTC $H:$(date -u +%M))"
+          echo "Mode: $MODE (UTC $(date -u +%H:%M))"
           python etf_monitor.py --$MODE
       - name: Commit data
         if: always()
