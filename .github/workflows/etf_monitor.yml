@@ -9,9 +9,8 @@ on:
         default: 'test'
         type: choice
         options: [test, intraday, daily]
-  schedule:
-    # 北京时间 14:30 = UTC 06:30，仅工作日（周一至周五）触发
-    - cron: '30 6 * * 1-5'
+  # 注：GitHub 官方 schedule/cron 排队机制不保证准时触发（常见延迟45分钟-数小时），
+  # 已改用外部定时服务（cron-job.org）通过 API 调用 workflow_dispatch 精准触发，故移除 schedule 触发器，避免重复通知。
 
 jobs:
   run:
